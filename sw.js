@@ -1,5 +1,5 @@
 // 앱 파일을 저장해 두어 인터넷이 없어도 열리게 합니다. 기록 동기화는 Firebase가 따로 처리해요.
-const CACHE = "tp-v1";
+const CACHE = "tp-v2";
 const SHELL = ["./", "./index.html", "./firebase-config.js", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png"];
 const CDN = ["https://www.gstatic.com/firebasejs/", "https://fonts.googleapis.com/", "https://fonts.gstatic.com/"];
 

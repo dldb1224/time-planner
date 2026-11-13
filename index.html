@@ -169,6 +169,28 @@ textarea.memo{width:100%;min-height:64px;resize:vertical;border:1px solid var(--
 .gate-sub code{font-family:var(--font-num);font-size:13px}
 .gate-btn{width:100%;padding:11px 14px;font-size:15px}
 .gate-err{color:var(--spend);font-size:13px;margin:12px 0 0}
+.chip.undo{padding:5px 11px}
+.chip.undo:disabled{opacity:.45;cursor:default}
+body.painting{overscroll-behavior:none}
+.grid .c{-webkit-touch-callout:none}
+.mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line);border-radius:0 0 10px 10px;overflow:hidden}
+.mh{background:var(--sheet);text-align:center;font-size:12px;font-weight:600;color:var(--muted);padding:6px 0}
+.mh.sat,.mc.sat .md{color:var(--accent)} .mh.sun,.mc.sun .md{color:var(--spend)}
+.mc{background:var(--sheet);border:0;min-height:76px;padding:6px;display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;min-width:0;border-radius:0}
+.mc.empty{cursor:default}
+.mc:hover:not(.empty){box-shadow:inset 0 0 0 2px var(--line-strong)}
+.mc.today{box-shadow:inset 0 0 0 2px var(--accent)}
+.mc .md{font-size:13px;font-weight:600}
+.mc .ma{font-size:13px;font-weight:600;line-height:1.25;max-width:100%;overflow-wrap:anywhere}
+.mc .ma .short{display:none}
+.mc .mt,.mc .mtd{font-size:11px;color:var(--muted)}
+@media (max-width:700px){
+  .mc{min-height:62px;padding:4px 3px}
+  .mc .ma{font-size:11.5px;letter-spacing:-.02em}
+  .mc .ma .full{display:none} .mc .ma .short{display:inline}
+  .mc .mt{display:none}
+  .mc .mtd{font-size:10px}
+}
 @media (max-width:420px){
   .bank .big{font-size:24px}
   .bank .rate{margin-left:0;text-align:left;width:100%}
@@ -372,7 +394,7 @@ function gateHTML(){
 
 /* ---------- render ---------- */
 let dragging=false,needRender=false;
-function viewNow(){const wide=matchMedia("(min-width: 1000px)").matches;return {wide,view:wide?(mode||"week"):"day"}}
+function viewNow(){const wide=matchMedia("(min-width: 1000px)").matches;let v=mode||(wide?"week":"day");if(!wide&&v==="week")v="day";return {wide,view:v}}
 function captureFocus(){
   const a=document.activeElement;if(!a||a===document.body)return null;
   const sel=a.dataset&&a.dataset.focus;if(!sel)return null;
@@ -389,8 +411,8 @@ function render(){
   if(authState!=="in"){app.innerHTML=gateHTML();return}
   const f=captureFocus();
   const {wide,view}=viewNow();
-  app.innerHTML=topHTML(wide,view)+(view==="week"?weekHTML():dayHTML());
-  renderStats(true);
+  app.innerHTML=topHTML(wide,view)+(view==="week"?weekHTML():view==="month"?monthHTML():dayHTML());
+  renderStats(true);updateUndo();
   restoreFocus(f);
 }
 function topHTML(wide,view){
@@ -400,14 +422,58 @@ function topHTML(wide,view){
     return '<button class="chip" style="--cc:'+esc(c.color)+'" data-act="pick" data-cat="'+esc(c.id)+'" aria-pressed="'+(selected===c.id)+'"><span class="sw t-'+c.type+'"></span>'+esc(c.name)+'<span class="sg">'+sg+'</span></button>';
   }).join("")+'<button class="chip eraser" data-act="pick" data-cat="eraser" aria-pressed="'+(selected==="eraser")+'"><span class="sw"></span>지우개</button>';
   return '<header class="top"><h1>시급 타임플래너</h1><span id="status" class="status'+(statusErr?" err":"")+'">'+esc(statusText)+'</span>'+
-    (wide?'<span class="seg"><button data-act="view" data-v="day" aria-pressed="'+(view==="day")+'">하루</button><button data-act="view" data-v="week" aria-pressed="'+(view==="week")+'">일주일</button></span>':"")+
+    '<span class="seg"><button data-act="view" data-v="day" aria-pressed="'+(view==="day")+'">하루</button>'+(wide?'<button data-act="view" data-v="week" aria-pressed="'+(view==="week")+'">일주일</button>':"")+'<button data-act="view" data-v="month" aria-pressed="'+(view==="month")+'">한 달</button></span>'+
     '<button class="btn" data-act="settings">설정</button></header>'+
     '<div class="bar"><div class="bank">'+
       '<div><div class="lbl">내 시간 통장</div><div class="big num" data-stat="balance">0원</div></div>'+
-      '<div><div class="lbl">'+(view==="week"?"이번 주":"이날")+'</div><div class="mini num" data-stat="'+(view==="week"?"week":"curday")+'">0원</div></div>'+
+      '<div><div class="lbl">'+(view==="week"?"이번 주":view==="month"?(parseKey(cur).getMonth()+1)+"월":"이날")+'</div><div class="mini num" data-stat="'+(view==="week"?"week":view==="month"?"month":"curday")+'">0원</div></div>'+
       '<div class="rate">시급 <span class="num">'+Number(settings.wage||0).toLocaleString("ko-KR")+'원</span><br>10분 한 칸 = <span class="num">'+Math.round(p).toLocaleString("ko-KR")+'원</span></div>'+
       '<span class="float" id="float"></span>'+
-    '</div><div class="palette" role="toolbar" aria-label="칠할 항목">'+chips+'</div></div>';
+    '</div>'+(view==="month"?"":'<div class="palette" role="toolbar" aria-label="칠할 항목"><button class="chip undo" data-act="undo" aria-label="방금 칠한 것 되돌리기">↶ 되돌리기</button>'+chips+'</div>')+'</div>';
+}
+
+function monthStats(k){
+  const d=parseKey(k),y=d.getFullYear(),m=d.getMonth(),n=new Date(y,m+1,0).getDate();
+  let net=0,earnMin=0,spendMin=0,best=null;
+  for(let i=1;i<=n;i++){const kk=keyOf(new Date(y,m,i)),s=dayStats(kk);net+=s.net;earnMin+=s.earnMin;spendMin+=s.spendMin;if(s.net>0&&(!best||s.net>best.net))best={k:kk,net:s.net}}
+  return {net,earnMin,spendMin,best};
+}
+function wonShort(n){
+  n=Math.round(n);if(!n)return "";
+  const a=Math.abs(n),sg=n>0?"+":"−";
+  if(a<10000)return sg+a.toLocaleString("ko-KR");
+  return sg+(a/10000).toFixed(1).replace(/\.0$/,"")+"만";
+}
+function monthHTML(){
+  const d=parseKey(cur),y=d.getFullYear(),m=d.getMonth(),n=new Date(y,m+1,0).getDate();
+  const lead=(new Date(y,m,1).getDay()+6)%7,todayK=keyOf(new Date()),thisMonth=todayK.slice(0,7)===cur.slice(0,7);
+  const ms=monthStats(cur);
+  let max=1;const st={};
+  for(let i=1;i<=n;i++){const k=keyOf(new Date(y,m,i));st[k]=dayStats(k);max=Math.max(max,Math.abs(st[k].net))}
+  let cells="";
+  for(let i=0;i<lead;i++)cells+='<div class="mc empty" aria-hidden="true"></div>';
+  for(let i=1;i<=n;i++){
+    const k=keyOf(new Date(y,m,i)),s=st[k],dow=(lead+i-1)%7;
+    const pct=s.net?Math.round(8+Math.abs(s.net)/max*32):0;
+    const tint=s.net>0?"background:color-mix(in srgb,var(--earn) "+pct+"%,var(--sheet))":s.net<0?"background:color-mix(in srgb,var(--spend) "+pct+"%,var(--sheet))":"";
+    const todos=readDay(k).todos||[],done=todos.filter(t=>t.done).length;
+    cells+='<button class="mc'+(k===todayK?" today":"")+(dow===5?" sat":"")+(dow===6?" sun":"")+'" style="'+tint+'" data-act="open-day" data-d="'+k+'" aria-label="'+(m+1)+'월 '+i+'일 '+won(s.net,true)+'">'+
+      '<span class="md num">'+i+'</span>'+
+      (s.net?'<span class="ma num '+cls(s.net)+'"><span class="full">'+won(s.net,true)+'</span><span class="short">'+wonShort(s.net)+'</span></span>':"")+
+      (s.earnMin?'<span class="mt num">'+dur(s.earnMin)+'</span>':"")+
+      (todos.length?'<span class="mtd num">✓ '+done+'/'+todos.length+'</span>':"")+
+      '</button>';
+  }
+  const trail=(7-(lead+n)%7)%7;
+  for(let i=0;i<trail;i++)cells+='<div class="mc empty" aria-hidden="true"></div>';
+  const bd=ms.best?parseKey(ms.best.k):null;
+  return '<div class="nav"><button class="iconbtn" data-act="prevm" aria-label="이전 달">‹</button><span class="title">'+y+'년 '+(m+1)+'월</span><button class="iconbtn" data-act="nextm" aria-label="다음 달">›</button>'+
+    (thisMonth?"":'<button class="btn" data-act="today">이번 달</button>')+'</div>'+
+    '<div class="sheet"><div class="sum"><div><div class="k">이달 순수익</div><div class="v num '+cls(ms.net)+'">'+won(ms.net,true)+'</div><div class="d">'+(bd?"최고 "+(bd.getMonth()+1)+"/"+bd.getDate()+" "+won(ms.best.net,true):"아직 기록이 없어요")+'</div></div>'+
+    '<div><div class="k">생산</div><div class="v num pos">'+dur(ms.earnMin)+'</div><div class="d num">'+won(ms.earnMin/10*perCell(),true)+'</div></div>'+
+    '<div><div class="k">유흥</div><div class="v num neg">'+dur(ms.spendMin)+'</div><div class="d num">'+(ms.spendMin?"−"+won(ms.spendMin/10*perCell()):"0원")+'</div></div></div>'+
+    '<div class="mgrid">'+["월","화","수","목","금","토","일"].map((w,i)=>'<div class="mh'+(i===5?" sat":"")+(i===6?" sun":"")+'">'+w+'</div>').join("")+cells+'</div></div>'+
+    '<p class="hint">날짜를 누르면 그날 시간표로 가요. 초록은 번 날, 빨강은 쓴 날이고 진할수록 금액이 커요.</p>';
 }
 function gridHTML(k){
   const cells=readDay(k).cells||{};
@@ -443,7 +509,7 @@ function dayHTML(){
     gridHTML(k)+
     '<div class="block"><h3>TO DO LIST</h3>'+todosHTML(k,false)+'</div>'+
     '<div class="block"><h3>오늘 한 줄</h3><textarea class="memo" data-focus="memo-'+k+'" data-d="'+k+'" placeholder="오늘은 어땠나요?">'+esc(readDay(k).memo||"")+'</textarea></div>'+
-    '</div><p class="hint">위에서 항목을 고르고 칸을 누르거나 옆으로 쓸어서 칠하세요. 같은 항목으로 다시 누르면 지워져요.</p></div>';
+    '</div><p class="hint">항목을 고르고 칸을 톡 누르면 한 칸이 칠해져요. 여러 칸은 꾹 누르고 진동이 오면 쓸어서 칠하세요. 그냥 쓸면 화면만 넘어가요.</p></div>';
 }
 function weekHTML(){
   const ws=weekStart(cur),we=addDays(ws,6),a=parseKey(ws),b=parseKey(we),todayK=keyOf(new Date());
@@ -483,6 +549,8 @@ function renderStats(){
   for(let i=0;i<7;i++){const s=dayStats(addDays(ws,i));wn+=s.net;we+=s.earnMin;wsp+=s.spendMin;wz+=s.zeroMin}
   const w=app.querySelector('[data-stat="week"]');if(w){w.textContent=won(wn,true);w.className="mini num "+cls(wn)}
   const set=(q,t)=>{const e=app.querySelector(q);if(e)e.textContent=t};
+  const mm=monthStats(cur);
+  const me=app.querySelector('[data-stat="month"]');if(me){me.textContent=won(mm.net,true);me.className="mini num "+cls(mm.net)}
   set('[data-stat="weekEarnMin"]',dur(we));set('[data-stat="weekSpendMin"]',dur(wsp));set('[data-stat="weekZeroMin"]',dur(wz));
   app.querySelectorAll("[data-dstat]").forEach(e=>{
     const s=dayStats(e.dataset.d),f=e.dataset.dstat;
@@ -496,12 +564,17 @@ function renderStats(){
 }
 
 /* ---------- painting ---------- */
-let paintCat=null,dragDay=null,dragDelta=0;
+// 마우스: 누르면 바로 칠하고 끌면 이어서 칠함
+// 터치: 톡 누르면 한 칸, 0.3초 꾹 누른 뒤 쓸면 여러 칸, 그냥 쓸면 화면만 넘어감
+let paintCat=null,dragDay=null,dragDelta=0,stroke=null,touchPaint=false,pending=null;
+const undoStack=[];
+const LONG_MS=300,MOVE_TOL=10;
 function cellValue(id){const c=catById(id);if(!c)return 0;return c.type==="earn"?perCell():c.type==="spend"?-perCell():0}
 function paint(el){
   const k=el.dataset.d,i=el.dataset.i,d=getDay(k);
   const prev=d.cells[i]||null,next=paintCat;
   if(prev===next)return;
+  if(stroke&&!stroke.changes.has(i))stroke.changes.set(i,prev);
   dragDelta+=cellValue(next)-cellValue(prev);
   if(next)d.cells[i]=next;else delete d.cells[i];
   const c=catById(next);
@@ -515,30 +588,65 @@ function showFloat(){
   f.textContent=won(dragDelta,true);f.style.color=dragDelta>0?"var(--earn)":"var(--spend)";
   f.className="float show";
 }
+function beginStroke(el){
+  const k=el.dataset.d,cur0=readDay(k).cells[el.dataset.i]||null;
+  paintCat=selected==="eraser"?null:(cur0===selected?null:selected);
+  dragging=true;dragDay=k;dragDelta=0;stroke={day:k,changes:new Map()};
+  paint(el);
+}
 function endDrag(){
-  if(!dragging)return;dragging=false;
-  if(dragDay)markDirty("day-"+dragDay);
+  if(!dragging)return;dragging=false;touchPaint=false;
+  document.body.classList.remove("painting");
+  if(stroke&&stroke.changes.size){
+    undoStack.push(stroke);if(undoStack.length>50)undoStack.shift();
+    markDirty("day-"+stroke.day);
+  }
+  stroke=null;updateUndo();
   const f=document.getElementById("float");if(f&&f.classList.contains("show")){void f.offsetWidth;f.className="float show fade"}
   dragDay=null;
   if(needRender){needRender=false;render()}
 }
+function cancelPending(){if(pending){clearTimeout(pending.timer);pending=null}}
+function undo(){
+  const s=undoStack.pop();if(!s)return;
+  const d=getDay(s.day);
+  s.changes.forEach((prev,i)=>{if(prev)d.cells[i]=prev;else delete d.cells[i]});
+  markDirty("day-"+s.day);render();
+}
+function updateUndo(){const b=app.querySelector('[data-act="undo"]');if(b)b.disabled=!undoStack.length}
 app.addEventListener("pointerdown",e=>{
   const el=e.target.closest(".c");if(!el)return;
   if(e.button!==undefined&&e.button!==0)return;
-  if(e.pointerType==="mouse")e.preventDefault();
-  const k=el.dataset.d,cur0=readDay(k).cells[el.dataset.i]||null;
-  if(selected==="eraser")paintCat=null;
-  else paintCat=(cur0===selected)?null:selected;
-  dragging=true;dragDay=k;dragDelta=0;
-  paint(el);
+  if(e.pointerType==="mouse"){e.preventDefault();beginStroke(el);return}
+  cancelPending();
+  pending={el,x:e.clientX,y:e.clientY,id:e.pointerId,timer:setTimeout(()=>{
+    if(!pending)return;
+    const p=pending;pending=null;
+    touchPaint=true;document.body.classList.add("painting");
+    try{navigator.vibrate&&navigator.vibrate(15)}catch(_){}
+    beginStroke(p.el);
+  },LONG_MS)};
 });
 document.addEventListener("pointermove",e=>{
+  if(pending&&e.pointerId===pending.id){
+    if(Math.hypot(e.clientX-pending.x,e.clientY-pending.y)>MOVE_TOL)cancelPending();
+    return;
+  }
   if(!dragging)return;
   const el=document.elementFromPoint(e.clientX,e.clientY);
   if(el&&el.classList&&el.classList.contains("c")&&el.dataset.d===dragDay)paint(el);
 });
-document.addEventListener("pointerup",endDrag);
-document.addEventListener("pointercancel",endDrag);
+document.addEventListener("pointerup",e=>{
+  if(pending&&e.pointerId===pending.id){
+    const p=pending;cancelPending();
+    beginStroke(p.el);endDrag();
+    return;
+  }
+  endDrag();
+});
+document.addEventListener("pointercancel",()=>{cancelPending();endDrag()});
+document.addEventListener("touchmove",e=>{if(touchPaint&&dragging)e.preventDefault()},{passive:false});
+app.addEventListener("contextmenu",e=>{if(e.target.closest(".c"))e.preventDefault()});
 
 /* ---------- actions ---------- */
 app.addEventListener("click",e=>{
@@ -552,6 +660,8 @@ app.addEventListener("click",e=>{
   else if(a==="nextw"){cur=addDays(cur,7);render()}
   else if(a==="today"){cur=keyOf(new Date());render()}
   else if(a==="view"){mode=b.dataset.v;render()}
+  else if(a==="undo"){undo()}
+  else if(a==="prevm"||a==="nextm"){const d=parseKey(cur);cur=keyOf(new Date(d.getFullYear(),d.getMonth()+(a==="prevm"?-1:1),1));render()}
   else if(a==="open-day"){cur=b.dataset.d;mode="day";render();window.scrollTo({top:0})}
   else if(a==="todo-del"){const d=getDay(b.dataset.d);d.todos.splice(Number(b.dataset.i),1);markDirty("day-"+b.dataset.d);render()}
   else if(a==="settings")openSettings();
