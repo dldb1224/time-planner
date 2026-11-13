@@ -50,9 +50,11 @@ button{cursor:pointer}
 .pos{color:var(--earn)} .neg{color:var(--spend)}
 
 .wrap{max-width:1500px;margin:0 auto;padding:0 16px 48px}
-header.top{display:flex;align-items:center;gap:10px;padding:14px 0 10px;flex-wrap:wrap}
-header.top h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
-.status{font-size:12px;color:var(--muted);margin-right:auto}
+header.top{display:flex;align-items:center;gap:8px;padding:12px 0 10px;flex-wrap:nowrap;min-height:58px}
+.brand{display:flex;flex-direction:column;min-width:0;flex:1}
+header.top .seg,header.top .btn{flex:none}
+header.top h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;height:18px;line-height:18px}
 .status.err{color:var(--spend)}
 .btn{border:1px solid var(--line-strong);background:var(--sheet);border-radius:8px;padding:6px 12px;font-size:13px;font-weight:500}
 .btn:hover{border-color:var(--ink)}
@@ -96,7 +98,7 @@ header.top h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
 .sum .v{font-size:16px;font-weight:600}
 .sum .d{font-size:12px;color:var(--muted)}
 
-.grid{display:grid;gap:1px;background:var(--line);user-select:none;-webkit-user-select:none;touch-action:pan-y}
+.grid{display:grid;gap:1px;background:var(--line);user-select:none;-webkit-user-select:none;touch-action:pan-y;-webkit-tap-highlight-color:transparent}
 .grid .gh,.grid .hl{background:var(--sheet);font-family:var(--font-num);color:var(--muted);display:flex;align-items:center;justify-content:center}
 .grid .c{background:var(--sheet);cursor:crosshair}
 .grid .c.f{background:var(--cc)}
@@ -325,7 +327,7 @@ async function flush(key){
 window.addEventListener("online",()=>{if(uid)setStatus(anyDirty()?"저장 중…":savedText())});
 window.addEventListener("offline",()=>{if(uid)setStatus(savedText())});
 
-let unsub=null;
+let unsub=null,lastSig="";
 function startSync(){
   if(unsub)unsub();
   const timer=setTimeout(()=>{if(navigator.onLine)setStatus("서버에 연결하지 못했어요. 보이는 내용이 최신이 아닐 수 있어요.",true)},10000);
@@ -341,7 +343,8 @@ function startSync(){
     if(!snap.metadata.fromCache){clearTimeout(timer);if(!anyDirty())setStatus(savedText())}
     else if(!navigator.onLine){clearTimeout(timer);setStatus(savedText())}
     if(!catById(selected)&&selected!=="eraser")selected=settings.categories[0].id;
-    render();
+    const sig=JSON.stringify([days,settings]);
+    if(sig!==lastSig){lastSig=sig;render()}
   },err=>{
     clearTimeout(timer);
     setStatus(err&&err.code==="permission-denied"?"기록을 읽을 권한이 없어요. Firestore 보안 규칙을 확인해 주세요.":"동기화가 끊겼어요. 앱을 다시 열어 주세요.",true);
@@ -421,7 +424,7 @@ function topHTML(wide,view){
     const sg=c.type==="earn"?"+":c.type==="spend"?"−":"0";
     return '<button class="chip" style="--cc:'+esc(c.color)+'" data-act="pick" data-cat="'+esc(c.id)+'" aria-pressed="'+(selected===c.id)+'"><span class="sw t-'+c.type+'"></span>'+esc(c.name)+'<span class="sg">'+sg+'</span></button>';
   }).join("")+'<button class="chip eraser" data-act="pick" data-cat="eraser" aria-pressed="'+(selected==="eraser")+'"><span class="sw"></span>지우개</button>';
-  return '<header class="top"><h1>시급 타임플래너</h1><span id="status" class="status'+(statusErr?" err":"")+'">'+esc(statusText)+'</span>'+
+  return '<header class="top"><div class="brand"><h1>시급 타임플래너</h1><span id="status" class="status'+(statusErr?" err":"")+'">'+esc(statusText)+'</span></div>'+
     '<span class="seg"><button data-act="view" data-v="day" aria-pressed="'+(view==="day")+'">하루</button>'+(wide?'<button data-act="view" data-v="week" aria-pressed="'+(view==="week")+'">일주일</button>':"")+'<button data-act="view" data-v="month" aria-pressed="'+(view==="month")+'">한 달</button></span>'+
     '<button class="btn" data-act="settings">설정</button></header>'+
     '<div class="bar"><div class="bank">'+
